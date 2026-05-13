@@ -35,12 +35,12 @@ OPENAI_API_KEY
 python3 ingest.py
 ```
 
-**6. Start the server**
+**5. Start the server**
 ```bash
 uvicorn main:app --reload
 ```
 
-**7. Open the app**
+**6. Open the app**
 
 Go to [http://localhost:8000](http://localhost:8000)
 
