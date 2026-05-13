@@ -1,0 +1,62 @@
+[
+  {
+    "id": 1,
+    "description": "Deathtouch damage assignment (basic keyword rule)",
+    "question": "A creature with deathtouch is blocked by two creatures. Does it need to assign more than 1 damage to each blocker to satisfy lethal damage?",
+    "expected_rule_citation": "702.2"
+  },
+  {
+    "id": 2,
+    "description": "Trample damage assignment over blockers",
+    "question": "A 5/5 creature with trample is blocked by a 2/2. How much damage can be assigned to the defending player?",
+    "expected_rule_citation": "702.19"
+  },
+  {
+    "id": 3,
+    "description": "State-Based Action: player loses at zero life",
+    "question": "A player is at 0 life but the turn has not ended. Have they lost the game yet?",
+    "expected_rule_citation": "704.5a"
+  },
+  {
+    "id": 4,
+    "description": "State-Based Action: the legendary rule",
+    "question": "A player controls two legendary permanents with the same name. What happens?",
+    "expected_rule_citation": "704.5j"
+  },
+  {
+    "id": 5,
+    "description": "Indestructible and lethal damage",
+    "question": "Can a creature with indestructible be destroyed by damage equal to or greater than its toughness?",
+    "expected_rule_citation": "702.12"
+  },
+  {
+    "id": 6,
+    "description": "Lifelink timing — when does life gain occur?",
+    "question": "Does lifelink cause life gain when damage is dealt, or at the end of the combat step?",
+    "expected_rule_citation": "702.15"
+  },
+  {
+    "id": 7,
+    "description": "First strike vs. double strike in combat",
+    "question": "What is the difference between first strike and double strike in the combat damage step?",
+    "expected_rule_citation": "702.4"
+  },
+  {
+    "id": 8,
+    "description": "Layers — order of continuous effect application",
+    "question": "If one effect sets a creature's power to 3 and another effect gives it +2/+2, in what order are these applied and what is the final power?",
+    "expected_rule_citation": "613"
+  },
+  {
+    "id": 9,
+    "description": "Replacement effects — damage prevention",
+    "question": "How does a damage prevention replacement effect interact with damage being dealt to a creature?",
+    "expected_rule_citation": "614"
+  },
+  {
+    "id": 10,
+    "description": "Priority — when players can cast instants",
+    "question": "After a sorcery resolves, which player receives priority first?",
+    "expected_rule_citation": "117"
+  }
+]
