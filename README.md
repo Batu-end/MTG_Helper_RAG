@@ -50,7 +50,7 @@ Go to [http://localhost:8000](http://localhost:8000)
 Does deathtouch work with trample?
 ```
 
-You should see a JSON response with `keywords`, `retrieved_rules`, and an `answer` that cites rule numbers.
+You should see a response with keywords, retrieved_rules, and an answer that cites rule numbers.
 
 ---
 
