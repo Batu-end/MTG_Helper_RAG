@@ -1,16 +1,23 @@
 # REPORT.md — MTG Judge AI
 
+
+## What does the app do?
+This application is an AI-powered MTG Judge designed for casual players who need a quick, authoritative rulings without pausing the game for 15 minutes to search forums. It takes a natural language description of a board state, retrieves the exact rules that apply and outputs a ruling with citations.
+
 ---
 
 ## Part 1: What's Hard About This AI Behavior
 
-The goal sounds simple: answer rules questions accurately and cite the right rule. The hard part is that accuracy depends on three steps all working correctly *in sequence*, and each step can silently fail in ways that look like success.
+The goal sounds simple: answer a rules question and cite the right rule. The hard part is that this depends on three steps working correctly in sequence, and each one can fail silently with no crash, no error, just a wrong answer that looks fine.
 
-**The retrieval bottleneck.** The system can only cite rules that were actually retrieved. If Step 2 returns the wrong five chunks, Step 3 (GPT) has no choice but to either answer from training data (ignoring the RAG entirely) or admit it can't answer. Both outcomes look like failures, but for different reasons — and from the outside, a confidently wrong answer is indistinguishable from a confidently right one.
+**The retrieval bottleneck.**
+The system can only cite rules it actually retrieved. If step 2 returns the wrong chunks, step 3 (GPT) either falls back on training data or admits it can't answer. Both look like failures, but for different reasons. The dangerous case is the first one, a confident wrong answer is indistinguishable from a confident right answer unless you go verify the citation manually.
 
-**Keyword extraction is load-bearing.** The quality of the retrieval depends entirely on what Step 1 extracts. MTG questions often contain card types, game actions, and rule concepts in the same sentence. Extracting the wrong one — say, "Sorcery" instead of "Timing and Priority" — pulls semantically nearby but wrong chunks. The system fails downstream with no error signal.
+**Keyword extraction is load-bearing.**
+Retrieval quality depends entirely on what step 1 extracts. MTG questions pack card types, game actions, and rule concepts into the same sentence. Pull the wrong term and you get semantically nearby but wrong chunks. Nothing tells you this happened, the pipeline just keeps going.
 
-**Cited rule ≠ correct ruling.** A model can cite a real rule number and still give a wrong ruling by misapplying it. Our evaluation metric only checks citation presence, not correctness. This means a 90% eval score overstates actual ruling accuracy.
+**Cited rule ≠ correct ruling.**
+A model can cite a real rule number and still misapply it. The eval only checks whether the citation string appears in the answer, not whether the ruling is actually right. An 80% score here means 8 out of 10 answers contained the expected rule number — it says nothing about whether those answers were legally correct.
 
 ---
 
@@ -18,21 +25,25 @@ The goal sounds simple: answer rules questions accurately and cite the right rul
 
 ### Version 1 — Flat keyword extraction prompt
 
-**Change:** The original `extract_keywords` system prompt asked GPT to extract "2-3 important MTG keywords, mechanic names, or rule concepts" with examples like `'Deathtouch', 'Layer 7', 'Priority', 'Trample'`.
+**Change:** 
+The original `extract_keywords` system prompt asked GPT to extract "2-3 important MTG keywords, mechanic names, or rule concepts" with examples like `'Deathtouch', 'Layer 7', 'Priority', 'Trample'`.
 
-**Motivating example:** Test case 10 — *"After a sorcery resolves, which player receives priority first?"* — consistently failed. GPT extracted `["Priority", "Sorcery"]`. Joined as `"Priority Sorcery"`, the embedding vector landed closer to the Section 307 (Sorceries) cluster than Section 117 (Timing and Priority). All five retrieved chunks were about sorcery casting conditions, none mentioning rule 117. GPT correctly responded: *"The provided rules do not specify which player receives priority first."*
+**Example:** 
+Test case 10 *"After a sorcery resolves, which player receives priority first?"* consistently failed. GPT extracted `["Priority", "Sorcery"]`. Joined as `"Priority Sorcery"`, the embedding vector landed closer to the Section 307 (Sorceries) cluster than Section 117 (Timing and Priority). All five retrieved chunks were about sorcery casting conditions, none mentioning rule 117. GPT correctly responded: *"The provided rules do not specify which player receives priority first."*
 
-**Delta:** 9/10 passing. Test 10 was a systematic failure, not a fluke — every run reproduced it.
+**Delta:** 
+9/10 passing. Test 10 was a systematic failure, not a fluke, every run reproduced it.
 
-**Conclusion:** The prompt was too permissive. Allowing card-type words like "Sorcery" as valid keywords pollutes the query with terms that are common in non-priority rules sections.
+**Conclusion:** 
+The prompt was too vague. Allowing card-type words like "Sorcery" as valid keywords pollutes the query with terms that are common in non-priority rules sections.
 
 ---
 
-### Version 2 — Section-heading-biased extraction prompt
+### Version 2 — Prompt focusing on rule section names
 
 **Change:** Rewrote the system prompt to explicitly prefer rule section names over card types: *"extract rule concepts that would appear as section headings in the MTG Comprehensive Rules… prefer 'Timing and Priority' not 'Sorcery'."*
 
-**Motivating example:** Test 10 immediately passed. GPT now extracted `["Timing and Priority", "Resolving Spells and Abilities"]`, retrieved rule 117.3b directly, and cited it verbatim.
+**Example:** Test 10 immediately passed. GPT now extracted `["Timing and Priority", "Resolving Spells and Abilities"]`, retrieved rule 117.3b directly, and cited it verbatim.
 
 **Delta:** Test 10 passed. But running the full eval showed overall accuracy dropped from 80% (8/10) to below that baseline — the abstract phrasing "Continuous Effects" retrieved layer-system rules when the question was specifically about Deathtouch, missing the tighter 702.2 sub-rules that the original keyword "Deathtouch" found directly.
 
@@ -56,29 +67,37 @@ The goal sounds simple: answer rules questions accurately and cite the right rul
 
 ### `ingest.py` — `chunk_rules()` — lines 56–97
 
-**What it does:** Reads the raw rules text line by line and starts a new chunk whenever a line matches `^\d+\.[\da-z]*\.?` — the pattern for MTG rule numbers like `702.2b.` or `100.`. Everything between two rule-number lines is kept together as one chunk.
+**What it does:**
+Reads the raw rules text line by line. Every time a line matches `^\d+\.[\da-z]*\.?`, which is the exaxt pattern for MTG rule numbers like `702.2b.` or `100.`, it ends the previous chunk and starts a new one. The result is one chunk per rule.
 
-**Why it's structured this way:** Each MTG rule is a self-contained semantic unit. Rule 702.2b says one specific thing about Deathtouch. Splitting there means each vector in ChromaDB represents exactly one rule, so a top-5 retrieval returns five distinct relevant rules rather than five excerpts from the same paragraph.
+**Why it's structured this way:**
+Each MTG rule is its own self-contained statement. Rule 702.2b says one specific thing about Deathtouch. Rule 702.19b says one specific thing about Trample. Keeping them separate means each vector in ChromaDB represents exactly one rule, so a top-5 retrieval gives you five distinct relevant rules — not five overlapping excerpts from the same paragraph.
 
-**Alternative considered and rejected:** Fixed-size character chunking (e.g. 500 characters with 50-character overlap) is the most common RAG chunking strategy. It was rejected here because MTG rules have natural, meaningful boundaries. A fixed-size split would routinely cut a rule in half — embedding the first sentence of 702.2b with the last sentence of 702.2a — producing a vector that doesn't cleanly represent either rule. Rule-boundary chunking is harder to implement but produces semantically cleaner retrievals.
+**Alternative considered and rejected:**
+Fixed-size character chunking (e.g. 500 characters with 50-character overlap) is the standard approach in most RAG tutorials. It was rejected here because MTG rules have natural boundaries that fixed-size chunks ignore. A 500-character split would frequently cut mid-rule, embedding the first sentence of 702.2b together with the last sentence of 702.2a. The resulting vector doesn't cleanly represent either rule, which hurts retrieval precision.
 
 ---
 
 ### `main.py` — `retrieve_rules()` — lines 148–191
 
-**What it does:** Joins the extracted keywords into a single string, embeds it with `text-embedding-3-small` (the same model used during ingest), and queries ChromaDB with `query_embeddings` to get the 5 closest chunks by cosine similarity.
+**What it does:**
+Takes the extracted keywords, joins them into a single string, embeds that string using `text-embedding-3-small`, and queries ChromaDB with `query_embeddings` to get the 5 closest chunks by cosine similarity.
 
-**Why the same embedding model matters:** ChromaDB stores raw float vectors. There is no model metadata attached — it's just numbers. If ingest used `text-embedding-3-small` and retrieval used `text-embedding-ada-002`, the vectors would be in different geometric spaces and cosine similarity scores would be meaningless. The `EMBEDDING_MODEL` constant in both files is the only thing enforcing this contract.
+**Why the same embedding model matters:**
+ChromaDB just stores lists of floats. There's no model tag attached — it's just numbers. If ingest used `text-embedding-3-small` and retrieval used `text-embedding-ada-002`, the two sets of vectors live in different geometric spaces and cosine similarity between them is meaningless. The `EMBEDDING_MODEL` constant defined at the top of both `ingest.py` and `main.py` is the only thing enforcing this — if you change one and not the other, retrieval silently breaks.
 
-**Why `query_embeddings` instead of `query_texts`:** ChromaDB's `query_texts` parameter uses its own built-in embedding function, which defaults to a local sentence-transformer model — a completely different vector space than OpenAI's. Using `query_embeddings` with our pre-computed vector is the only way to guarantee the query and the stored chunks are in the same space.
+**Why `query_embeddings` instead of `query_texts`:**
+ChromaDB's `query_texts` parameter runs its own embedding function internally, which defaults to a local sentence-transformer model. That's a completely different vector space from OpenAI's. Passing a pre-computed vector via `query_embeddings` is the only way to guarantee the query and the stored chunks are comparable.
 
 ---
 
 ### `main.py` — three-step chain in `ask_judge()` — lines 253–303
 
-**What it does:** Calls `extract_keywords()`, then `retrieve_rules()`, then `draft_answer()` in sequence, with a separate `try/except` block around each step that returns an HTTP 500 with a step-specific error message.
+**What it does:**
+Calls `extract_keywords()`, then `retrieve_rules()`, then `draft_answer()` in order. Each call is wrapped in its own `try/except` block that returns an HTTP 500 with a message identifying which step failed.
 
-**Why separate error blocks instead of one outer try/except:** A single outer catch would return `"Step failed"` with no indication of where. A grader or developer hitting a rate limit error can immediately see `"Step 1 failed — OpenAI keyword extraction error: 429"` and know the issue is the API key, not ChromaDB. Debugging time drops significantly.
+**Why separate error blocks instead of one outer try/except:**
+One outer catch would just return `"something failed"` with no useful context. Separate blocks mean a rate limit error surfaces as `"Step 1 failed — OpenAI keyword extraction error: 429"` instead of a generic 500. You immediately know it's an API key issue, not a ChromaDB issue. Small thing, saves a lot of debugging time.
 
 ---
 
@@ -86,24 +105,18 @@ The goal sounds simple: answer rules questions accurately and cite the right rul
 
 ### AI Assistance Used
 
-This project was built with Claude Code (claude-sonnet-4-6) as a coding assistant throughout. The following specific failures and recoveries occurred:
+This project was built with assustance of Kiro as a coding assistant throughout. The following specific failures and recoveries occurred:
 
-**Failure 1 — Incompatible dependency versions.** Claude generated `requirements.txt` with `openai==1.51.0` without pinning `httpx`. When installed, `pip` resolved `httpx` to 0.28.0, which removed the `proxies` constructor argument that `openai` 1.51 still passes internally. The error was a `TypeError` at import time, not a clear dependency conflict message. Recovery: Claude diagnosed the root cause from the traceback and added `httpx==0.27.2` to requirements. **Lesson:** Pinned versions without a lock file still leave transitive dependencies unconstrained.
+**Failure 1 — Broken install out of the box.** Kiro specified package versions in `requirements.txt` but didn't pin every dependency, just the ones we explicitly use. When installed fresh, pip pulled in a newer version of an internal package (`httpx`) that had changed its API, and the app crashed immediately on startup with a `TypeError`. Nothing in the error message pointed to a version mismatch. Kiro found the root cause from the traceback and added the missing pin. The lesson is that specifying your own packages isn't enough — transitive dependencies can break things too.
 
-**Failure 2 — Incomplete task delivery.** Claude was asked to build the frontend (Task 3) and edited `main.py` to mount `static/` and serve `index.html` — but never actually wrote `index.html`. The server started without error, but every request to `/` returned a 500. The missing file was only discovered when the app was first opened in a browser. Recovery: Claude wrote the file when the 500 was reported. **Lesson:** Claude completed the setup work (routing, imports) and omitted the payload (the actual HTML file), a failure mode where partial completion looks like success.
+**Failure 2 — Did half the job.** When asked to build the frontend, Kiro updated the backend to serve an HTML file, but never actually created the HTML file. The server started fine, the route was registered, and nothing looked wrong until you opened a browser and got a 500 error. Kiro wrote the missing file once I reported the crash. The problem was that Kiro treated "set up the route" as equivalent to "build the frontend," which it isn't.
 
-**Failure 3 — Prompt fix that caused a regression.** Claude diagnosed the test 10 failure (priority question retrieving sorcery rules), identified the cause correctly, and proposed a prompt change that fixed test 10 but degraded 2–3 other tests. The fix was overfit to the failing example. Recovery: the original prompt was restored and the failure was documented as a known limitation. **Lesson:** LLM prompt tuning has the same overfitting risk as model fine-tuning. Fixing one example by changing a general instruction can break the general case.
+**Failure 3 — Fixed one thing, broke two others.** Test 10 was failing because the keyword extractor was pulling the wrong terms for a priority question. Kiro rewrote the prompt to fix it, test 10 passed — but the overall evaluation dropped because the new prompt made other questions worse. The fix was too narrow. We reverted and documented the failure instead. The takeaway: changing a general instruction to fix one specific case is risky, because the instruction applies to everything.
 
 ---
 
-### Real Safety Risk: Authoritative Tone on Wrong Answers
+### Real Risk: Confident Wrong Answers
 
-The most significant safety risk in this application is not hallucination in the conventional sense — it is **retrieval failure combined with authoritative framing**.
+When retrieval fails, GPT doesn't say "I don't know", it sounds like a judge anyway. This happened in a live test: asked about Blood Moon + Urza's Saga, the system retrieved completely irrelevant chunks (an echo mechanic errata, an Antiquities card list) and GPT filled in the gap with training data. It gave a wrong ruling, cited nothing suspicious, and raised no errors. A player trusting that answer in a real game would make the wrong play.
 
-When ChromaDB returns the wrong rule chunks (as demonstrated by test 10 in Version 1), GPT has two possible behaviors: it either answers from training data while appearing to cite retrieved rules, or it correctly says the provided rules are insufficient. The second behavior is safe. The first is dangerous.
-
-The system prompt instructs GPT to act as a *Level 3 MTG Judge* and to cite rules explicitly. This framing produces confident, authoritative-sounding prose. A player at a tournament who receives a ruling like *"Rule 702.2b clearly states that lethal damage requires only 1 point…"* is likely to trust it — even if the retrieved chunk was from the wrong section and the ruling is wrong.
-
-The concrete harm: a player makes an incorrect play in a competitive match based on this tool's ruling, loses a game or match, and has no recourse because the ruling cited a real rule number that the player cannot easily verify mid-game.
-
-**Mitigation not yet implemented:** The response should include a disclaimer on every answer: *"This ruling is AI-generated and not a substitute for an official judge ruling. Verify citations against the current Comprehensive Rules before acting on them in competitive play."* The retrieved chunks should also be shown by default (not collapsed), so the user can see whether the cited rules actually appeared in the retrieval results.
+The fix would be adding a disclaimer to every answer and showing the retrieved chunks by default so users can see what the system actually pulled.
