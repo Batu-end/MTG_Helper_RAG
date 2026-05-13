@@ -22,6 +22,8 @@ from typing import Any
 import chromadb
 from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from openai import OpenAI, OpenAIError
 from pydantic import BaseModel, Field
 
@@ -314,3 +316,21 @@ async def health_check() -> dict:
         return {"status": "ok", "rules_in_db": count}
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"ChromaDB error: {str(e)}")
+
+
+# ── Serve the frontend UI ─────────────────────────────────────────────────────
+#
+# This must come AFTER all API routes are defined. FastAPI matches routes in
+# registration order, so the API endpoints above take priority over the static
+# file mount. If we registered the mount first, "/" would be claimed by
+# StaticFiles before our /ask and /health routes were reachable.
+
+@app.get("/", include_in_schema=False)
+async def serve_ui() -> FileResponse:
+    """Serve the single-page frontend at the root URL."""
+    return FileResponse("static/index.html")
+
+
+# Mount CSS/JS/image assets under /static so index.html can reference them
+# with paths like /static/logo.png if needed in the future.
+app.mount("/static", StaticFiles(directory="static"), name="static")
