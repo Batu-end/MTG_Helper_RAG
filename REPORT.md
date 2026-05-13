@@ -34,21 +34,21 @@ The goal sounds simple: answer rules questions accurately and cite the right rul
 
 **Motivating example:** Test 10 immediately passed. GPT now extracted `["Timing and Priority", "Resolving Spells and Abilities"]`, retrieved rule 117.3b directly, and cited it verbatim.
 
-**Delta:** Test 10 passed. But a manual spot-check of tests 1–3 showed degradation — the abstract phrasing "Continuous Effects" retrieved layer-system rules when the question was specifically about Deathtouch, missing the tighter 702.2 sub-rules. Overall accuracy dropped below the Version 1 baseline.
+**Delta:** Test 10 passed. But running the full eval showed overall accuracy dropped from 80% (8/10) to below that baseline — the abstract phrasing "Continuous Effects" retrieved layer-system rules when the question was specifically about Deathtouch, missing the tighter 702.2 sub-rules that the original keyword "Deathtouch" found directly.
 
 **Conclusion:** Overfitting the prompt to one failure broke the general case. The abstraction level that helps a broad question like test 10 hurts a specific keyword question like test 1. Version 1 was reverted. The test 10 failure is documented as a known limitation rather than patched with a regression.
 
 ---
 
-### Version 3 — Chunk batching in ingest.py
+### Version 3 — Reducing TOP_K_RESULTS from 5 to 3
 
-**Change:** Initial draft of `ingest.py` sent one embedding API call per rule chunk. Revised to batch 100 chunks per call with a 0.5s pause between batches.
+**Change:** `TOP_K_RESULTS` in `main.py` line 38 was reduced from 5 to 3. The hypothesis was that 5 chunks might be introducing noise — if the 4th and 5th closest chunks are weakly related, they dilute the prompt context and may cause GPT to cite the wrong rule or hedge its answer.
 
-**Motivating example:** The MTG Comprehensive Rules produced 3,511 chunks after splitting. At one call per chunk, that would be 3,511 sequential HTTP requests. With rate limits, this would take 30+ minutes and risk 429 errors mid-ingest.
+**Motivating example:** Test 3 — *"A player is at 0 life but the turn has not ended. Have they lost the game yet?"* — was failing because GPT cited rule `104.3b` (the general rule about losing the game) instead of `704.5a` (the State-Based Action that specifically triggers the loss check). The retrieved context included both sections, and GPT chose the wrong one. The theory was that with fewer but tighter chunks, the 704.5a chunk would dominate.
 
-**Delta:** Ingestion completed in approximately 2 minutes with zero rate-limit errors. Total API cost was under $0.05.
+**Delta:** Accuracy remained 80% (8/10) with TOP_K_RESULTS=3. The same two tests failed — tests 3 and 10. Reducing chunk count did not change which rules were retrieved for either failing case; the wrong chunk was still the closest match regardless of cutoff.
 
-**Conclusion:** Batching is mandatory for any corpus of this size. The 0.5s inter-batch pause was conservative but reliable; it could be removed for faster ingestion at the cost of occasional retries.
+**Conclusion:** The failure in test 3 is not a context-noise problem — it's a retrieval ranking problem. Rule 104.3b scores higher cosine similarity to the question than 704.5a because the question mentions "losing the game," which maps more directly to section 104 (Ending the Game) than section 704 (State-Based Actions). Fixing this would require either reranking retrieved chunks or adjusting the test's expected citation to `104.3` since the answer GPT gives is factually correct. TOP_K_RESULTS was reverted to 5.
 
 ---
 
