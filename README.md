@@ -44,6 +44,14 @@ uvicorn main:app --reload
 
 Go to [http://localhost:8000](http://localhost:8000)
 
+**7. Try a test question**
+
+```bash
+Does deathtouch work with trample?
+```
+
+You should see a JSON response with `keywords`, `retrieved_rules`, and an `answer` that cites rule numbers.
+
 ---
 
 ## Evaluation

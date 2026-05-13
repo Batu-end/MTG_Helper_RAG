@@ -12,7 +12,7 @@ The goal sounds simple: answer a rules question and cite the right rule. The har
 **The retrieval bottleneck.**
 The system can only cite rules it actually retrieved. If step 2 returns the wrong chunks, step 3 either falls back on training data or admits it can't answer. The dangerous case is the first one, where a confidently wrong answer looks identical to a correct one unless you verify the citation yourself.
 
-**Keyword extraction is load-bearing.**
+**Keyword extraction is difficult.**
 Retrieval quality depends entirely on what step 1 extracts. MTG questions pack card types, game actions, and rule concepts into the same sentence. Pull the wrong term and you get wrong chunks with no error signal, the pipeline just keeps going.
 
 **Cited rule ≠ correct ruling.**
