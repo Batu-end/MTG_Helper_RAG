@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>MTG Judge AI</title>
+
+  <!-- Tailwind CSS via CDN — no build step needed -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    /*
+     * rule-highlight: wraps any rule number pattern (e.g. "702.2b") found in
+     * the judge's answer. Applied via JavaScript after the response arrives.
+     */
+    .rule-highlight {
+      background-color: #fef08a; /* yellow-200 */
+      color: #1e1b4b;            /* indigo-950 */
+      font-weight: 600;
+      padding: 1px 4px;
+      border-radius: 4px;
+      font-family: ui-monospace, monospace;
+    }
+  </style>
+</head>
+
+<body class="bg-slate-900 text-slate-100 min-h-screen font-sans">
+
+  <!-- ── Header ───────────────────────────────────────────────────────────── -->
+  <header class="border-b border-slate-700 bg-slate-800/60 backdrop-blur px-6 py-4">
+    <div class="max-w-3xl mx-auto flex items-center gap-3">
+      <span class="text-2xl">⚔️</span>
+      <div>
+        <h1 class="text-xl font-bold text-white tracking-tight">MTG Judge AI</h1>
+        <p class="text-sm text-slate-400">Instant rulings powered by the Comprehensive Rules</p>
+      </div>
+    </div>
+  </header>
+
+  <!-- ── Main content ─────────────────────────────────────────────────────── -->
+  <main class="max-w-3xl mx-auto px-6 py-10 space-y-6">
+
+    <!-- Question card -->
+    <div class="bg-slate-800 rounded-2xl p-6 shadow-lg border border-slate-700">
+      <label for="question" class="block text-sm font-semibold text-slate-300 mb-2">
+        Describe your board state or ask a rules question
+      </label>
+      <textarea
+        id="question"
+        rows="4"
+        placeholder="e.g. A 5/5 with trample and deathtouch is blocked by a 2/2. How is damage assigned?"
+        class="w-full bg-slate-900 border border-slate-600 rounded-xl px-4 py-3 text-slate-100
+               placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-amber-500
+               focus:border-transparent resize-none text-sm leading-relaxed"
+      ></textarea>
+
+      <div class="mt-4 flex justify-end">
+        <button
+          id="submit-btn"
+          onclick="handleSubmit()"
+          class="bg-amber-500 hover:bg-amber-400 disabled:bg-slate-600 disabled:cursor-not-allowed
+                 text-slate-900 font-bold px-6 py-2.5 rounded-xl transition-colors text-sm"
+        >
+          Get Ruling
+        </button>
+      </div>
+    </div>
+
+    <!-- ── Loading state (hidden by default) ──────────────────────────────── -->
+    <div id="loading" class="hidden">
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-6 flex items-center gap-4">
+        <!-- Spinner SVG -->
+        <svg class="animate-spin h-6 w-6 text-amber-400 shrink-0" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor"
+            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div>
+          <p class="font-semibold text-amber-400 text-sm">Consulting the rules...</p>
+          <p class="text-xs text-slate-400 mt-0.5">Extracting keywords → Retrieving rules → Drafting ruling</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Error state (hidden by default) ────────────────────────────────── -->
+    <div id="error-box" class="hidden">
+      <div class="bg-red-950 border border-red-700 rounded-2xl p-5 flex gap-3">
+        <span class="text-red-400 text-lg shrink-0">✕</span>
+        <div>
+          <p class="font-semibold text-red-300 text-sm">Something went wrong</p>
+          <p id="error-message" class="text-red-400 text-sm mt-1"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Results (hidden by default) ───────────────────────────────────── -->
+    <div id="results" class="hidden space-y-4">
+
+      <!-- Keywords pill row -->
+      <div class="bg-slate-800 border border-slate-700 rounded-2xl p-5">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-slate-400 mb-3">
+          Step 1 — Keywords Identified
+        </h2>
+        <div id="keywords-container" class="flex flex-wrap gap-2"></div>
+      </div>
+
+      <!-- Retrieved rules (collapsible) -->
+      <details class="bg-slate-800 border border-slate-700 rounded-2xl group">
+        <summary class="px-5 py-4 cursor-pointer select-none flex items-center justify-between
+                        text-xs font-semibold uppercase tracking-widest text-slate-400
+                        hover:text-slate-200 transition-colors list-none">
+          <span>Step 2 — Retrieved Rule Chunks</span>
+          <!-- Chevron rotates when open -->
+          <svg class="h-4 w-4 transition-transform group-open:rotate-180" fill="none"
+               stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+          </svg>
+        </summary>
+        <div id="rules-container" class="px-5 pb-5 space-y-3"></div>
+      </details>
+
+      <!-- Final ruling -->
+      <div class="bg-slate-800 border border-amber-500/40 rounded-2xl p-5 shadow-amber-900/20 shadow-lg">
+        <h2 class="text-xs font-semibold uppercase tracking-widest text-amber-400 mb-3">
+          ⚖️ Step 3 — Judge's Ruling
+        </h2>
+        <!--
+          Answer text is inserted here by renderResults().
+          Rule numbers inside the text (e.g. "702.2b") are wrapped in
+          <span class="rule-highlight"> by highlightRuleNumbers().
+        -->
+        <p id="answer-text" class="text-slate-100 text-sm leading-relaxed whitespace-pre-wrap"></p>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ── JavaScript ───────────────────────────────────────────────────────── -->
+  <script>
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
+
+    /** Show one panel, hide the others. */
+    function setPanel(name) {
+      ["loading", "error-box", "results"].forEach(id => {
+        document.getElementById(id).classList.add("hidden");
+      });
+      if (name) document.getElementById(name).classList.remove("hidden");
+    }
+
+    /** Enable or disable the submit button. */
+    function setSubmitEnabled(enabled) {
+      const btn = document.getElementById("submit-btn");
+      btn.disabled = !enabled;
+      btn.textContent = enabled ? "Get Ruling" : "Thinking…";
+    }
+
+    // ── Rule number highlighting ───────────────────────────────────────────────
+    /*
+     * Regex explanation:
+     *   \b        — word boundary (so "1702.2" doesn't match)
+     *   \d{1,3}   — 1-3 digits  (e.g. "7", "70", "702")
+     *   \.        — literal dot
+     *   \d+       — one or more digits
+     *   [a-z]?    — optional lowercase letter (e.g. "702.2b")
+     *   \.?       — optional trailing dot
+     *   \b        — word boundary
+     */
+    const RULE_PATTERN = /\b(\d{1,3}\.\d+[a-z]?\.?)\b/g;
+
+    /**
+     * Escape HTML special characters, then wrap rule numbers in highlight spans.
+     * We escape FIRST so the injected <span> tags are never double-escaped.
+     */
+    function highlightRuleNumbers(rawText) {
+      const escaped = rawText
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+
+      return escaped.replace(RULE_PATTERN, '<span class="rule-highlight">$1</span>');
+    }
+
+    // ── Render helpers ────────────────────────────────────────────────────────
+
+    function renderKeywords(keywords) {
+      const container = document.getElementById("keywords-container");
+      container.innerHTML = keywords
+        .map(kw => `
+          <span class="bg-amber-500/20 text-amber-300 border border-amber-500/30
+                       px-3 py-1 rounded-full text-xs font-medium">
+            ${kw}
+          </span>`)
+        .join("");
+    }
+
+    function renderRuleChunks(chunks) {
+      const container = document.getElementById("rules-container");
+      container.innerHTML = chunks
+        .map((chunk, i) => `
+          <div class="bg-slate-900 rounded-xl p-4 border border-slate-700">
+            <p class="text-xs text-slate-500 font-semibold mb-1">Chunk ${i + 1}</p>
+            <p class="text-slate-300 text-xs leading-relaxed font-mono whitespace-pre-wrap">${
+              chunk.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+            }</p>
+          </div>`)
+        .join("");
+    }
+
+    function renderResults(data) {
+      renderKeywords(data.keywords);
+      renderRuleChunks(data.retrieved_rules);
+
+      // Highlight rule numbers in the answer and inject as HTML
+      document.getElementById("answer-text").innerHTML =
+        highlightRuleNumbers(data.answer);
+
+      setPanel("results");
+    }
+
+    // ── Main handler ──────────────────────────────────────────────────────────
+
+    async function handleSubmit() {
+      const question = document.getElementById("question").value.trim();
+
+      if (!question) {
+        document.getElementById("question").focus();
+        return;
+      }
+
+      setSubmitEnabled(false);
+      setPanel("loading");
+
+      try {
+        const response = await fetch("/ask", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ question }),
+        });
+
+        if (!response.ok) {
+          // Parse the FastAPI error detail if available
+          const err = await response.json().catch(() => ({}));
+          throw new Error(err.detail || `Server error (HTTP ${response.status})`);
+        }
+
+        const data = await response.json();
+        renderResults(data);
+
+      } catch (err) {
+        document.getElementById("error-message").textContent = err.message;
+        setPanel("error-box");
+      } finally {
+        // Always re-enable the button so the user can try again
+        setSubmitEnabled(true);
+      }
+    }
+
+    // Allow Ctrl+Enter / Cmd+Enter to submit from the textarea
+    document.getElementById("question").addEventListener("keydown", e => {
+      if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) handleSubmit();
+    });
+
+  </script>
+</body>
+</html>
