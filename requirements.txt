@@ -4,6 +4,8 @@ uvicorn==0.30.6           # ASGI server that runs the FastAPI app locally
 
 # ── AI / Embeddings ─────────────────────────────────────────────────────────
 openai==1.51.0            # OpenAI SDK — used for embeddings + chat completions
+httpx==0.27.2             # HTTP client used internally by openai — pinned below 0.28
+                          # because 0.28 removed the 'proxies' arg openai 1.51 still uses
 
 # ── Vector database ──────────────────────────────────────────────────────────
 chromadb==0.5.15          # Local vector DB — stores and searches rule embeddings
