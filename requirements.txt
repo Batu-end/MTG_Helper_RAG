@@ -1,0 +1,13 @@
+# ── Core web framework ──────────────────────────────────────────────────────
+fastapi==0.115.0          # The web framework we use to build our API endpoints
+uvicorn==0.30.6           # ASGI server that runs the FastAPI app locally
+
+# ── AI / Embeddings ─────────────────────────────────────────────────────────
+openai==1.51.0            # OpenAI SDK — used for embeddings + chat completions
+
+# ── Vector database ──────────────────────────────────────────────────────────
+chromadb==0.5.15          # Local vector DB — stores and searches rule embeddings
+
+# ── Config & validation ──────────────────────────────────────────────────────
+python-dotenv==1.0.1      # Loads API keys from a .env file so they stay out of code
+pydantic==2.9.2           # Data validation — FastAPI uses this under the hood
