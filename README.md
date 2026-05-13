@@ -25,9 +25,9 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 ```
-Open `.env` and make the line read:
+Open `.env` and paste your key
 ```
-OPENAI_API_KEY=sk-your-key-here
+OPENAI_API_KEY
 ```
 
 **4. Ingest the rules** *(one-time, ~2 minutes)*
